@@ -1,0 +1,32 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+void intToStr(int n, char *str)
+{
+	int i = 0;
+	while(n)
+	{
+		str[i] = n % 10 + '0';
+		n = n/10;
+		i++;
+	}
+
+	int len = strlen(str);
+	for(i=0; i<len/2; i++)
+	{
+				str[i] ^= str[len-1-i];
+				str[len-1-i] ^= str[i];
+				str[i] ^= str[len-1-i];
+	}
+}
+
+int main(int argc, const char *argv[])
+{
+	int n;
+	scanf("%d",&n);
+	char str[10] = {0};
+	intToStr(n,str);
+	puts(str);
+	return 0;
+}

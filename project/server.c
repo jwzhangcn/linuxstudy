@@ -1,0 +1,183 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/types.h>          /* See NOTES */
+#include <sys/socket.h>
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <unistd.h>
+#include <pthread.h>
+#include "serial.h"
+
+#define SIZE 36
+
+int serial_fd;
+int tmp = 35;
+int hum = 67;
+int ill = 1024;
+
+void *swc_thread(void *agrs)
+{
+	
+	//int n = ssize_t serial_recv_exact_nbytes(int fd, void *buf, size_t count);
+}
+
+void *env_thread(void *agrs)
+{	
+	int ret;
+	unsigned char envbuf[36] = {0};
+	int serial_fd = serial_init("/dev/ttyUSB0");
+	if(serial_fd == -1)
+	{
+		printf("serial_open error\n");
+		return NULL;
+	}
+	
+	ret = serial_set(serial_fd, 115200, 0, 8, 1, 'N');
+
+	if(-1 == ret)
+	{
+		printf("serial_set error\n");
+		close(serial_fd);
+		return NULL;
+	}
+
+	while(1)
+	{
+			bzero(envbuf,sizeof(envbuf));
+			ret = serial_recv(serial_fd, envbuf,sizeof(envbuf), -1);
+			if(ret < 36)
+			{
+				printf("serial_recv error\n");
+				break;
+			}
+
+			tmp = envbuf[5];
+			hum = envbuf[7];
+			ill = envbuf[20];
+			
+			sleep(1);
+	}
+}
+
+
+int server_init(unsigned char *ipaddr, unsigned short port, int backlog)
+{
+	int sockfd = socket(AF_INET, SOCK_STREAM, 0);//创建通信节点
+	if(-1 ==  sockfd)
+	{
+		perror("socket");
+		return -1;
+	}
+	//printf("sockfd=%d\n",sockfd);
+
+	int on = 1;
+	setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &on,sizeof(on));
+
+	//使用Internet地址结构
+	struct sockaddr_in saddr;
+	bzero(&saddr,sizeof(saddr));
+	saddr.sin_family = AF_INET;//ipv4协议
+	saddr.sin_port = htons(port);//5001~65535 端口号由主机字节序转网络字节序	
+	saddr.sin_addr.s_addr = inet_addr(ipaddr);//ip地址由点分式转二进制无符号网络字节序
+ 	
+	socklen_t slen = sizeof(saddr);
+
+	int ret = bind(sockfd, (struct sockaddr *)&saddr,slen);
+	if(-1 == ret)
+	{
+		perror("bind");
+		close(sockfd);
+		return -1;
+	}
+	//printf("bind success\n");
+	
+	ret = listen(sockfd, backlog);//监听是否有客户端请求
+	if(-1 == ret)
+	{
+		perror("listen");
+		close(sockfd);
+		return -1;
+	}
+
+
+	return sockfd;
+}
+
+int main(int argc, const char *argv[])
+{
+	if(2 > argc)
+	{
+		printf("Usage:%s <ipaddr>\n",argv[0]);
+		return -1;
+	}	
+	
+	int ret;
+	char reqbuf[SIZE] = {0};
+	char headbuf[SIZE] = {0};
+
+	int sockfd = server_init(argv[1],8080, 1024);
+
+	if(-1 == sockfd)
+	{
+		printf("server_init error\n");
+		return -1;
+	}
+	printf("listen....\n");
+	
+	int rws = accept(sockfd, NULL, NULL);//阻塞等待客户端连接
+
+	if(-1 == rws)
+	{
+		perror("accept");
+		close(sockfd);
+		return -1;
+	}
+	printf("rws=%d\n",rws);
+
+	pthread_t cam_tid;
+	pthread_t env_tid;
+	pthread_t swc_tid;
+
+	pthread_create(&env_tid, NULL, env_thread, NULL);
+	pthread_create(&swc_tid, NULL, swc_thread, NULL);
+	
+	while(1)
+	{
+		bzero(reqbuf,sizeof(reqbuf));
+		ret = read(rws,reqbuf,sizeof(reqbuf));//读取客户端发送的请求指令
+		if(-1 == ret)
+		{
+			perror("read");
+			break;
+		}
+		if(0 == ret)//客户读关闭
+		{
+			printf("client closed\n");
+			break;
+		}
+//		printf("reqbuf:%s\n",reqbuf);
+		if(strncmp(reqbuf, "env",3) == 0)//判读请求指令是否是"env"
+		{
+			
+			//发送环境信息数据
+			sprintf(headbuf,"%dt%dh%di",tmp,hum,ill);//整数转字符串 eg:35t67h1024i
+			//printf("headbuf:%s\n",headbuf);
+			ret = write(rws,headbuf,sizeof(headbuf));
+			if(-1 == ret)
+			{
+				perror("write piclen");
+				break;
+			}
+
+		}
+	}
+
+}
+
+
+
+
+
+
+
